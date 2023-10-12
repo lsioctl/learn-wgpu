@@ -16,6 +16,7 @@ pub struct State {
     // it gets dropped after it as the surface contains
     // unsafe references to the window's resources.
     window: Window,
+    render_pipeline: wgpu::RenderPipeline,
 }
 
 impl State {
@@ -96,6 +97,76 @@ impl State {
         };
         surface.configure(&device, &config);
 
+        // a macro could also be used
+        // let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shader1.wgsl").into()),
+        });
+        
+        let render_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Render Pipeline Layout"),
+                bind_group_layouts: &[],
+                push_constant_ranges: &[],
+        });
+
+        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Render Pipeline"),
+            layout: Some(&render_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: "vs_main",
+                // what type of vertices we want to pass to the vertex shader
+                // for now it's specified in the shader itself
+                buffers: &[],
+            },
+            // fragment is optional so it's in an Option
+            // we need it as we want to store color data on the surface
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: "fs_main",
+                // what color output it should set up
+                // currently we only need one for the surface
+                targets: &[Some(wgpu::ColorTargetState {
+                    // use the surface's format so copying is easy
+                    format: config.format,
+                    // blending should replace old pixel data with new data
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    // write all colors: rgb and alpha
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState {
+                // every three vertices will correspond to one triangle
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                // front facing triangles are when vertices are given
+                // in counter clock-wise order
+                front_face: wgpu::FrontFace::Ccw,
+                // back facing triangles are not rendered
+                cull_mode: Some(wgpu::Face::Back),
+                // Setting this to anything other than Fill requires Features::NON_FILL_POLYGON_MODE
+                polygon_mode: wgpu::PolygonMode::Fill,
+                // Requires Features::DEPTH_CLIP_CONTROL
+                unclipped_depth: false,
+                // Requires Features::CONSERVATIVE_RASTERIZATION
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                // only one sample
+                count: 1,
+                // which sample will be active (all of them, i.e one)
+                mask: !0,
+                // anti-aliasing related
+                alpha_to_coverage_enabled: false,
+            },
+            // we will not render to array textures
+            multiview: None,
+        });
+
+
         Self {
             surface,
             device,
@@ -103,6 +174,7 @@ impl State {
             config,
             size,
             window,
+            render_pipeline
         }
     }
 
@@ -149,11 +221,13 @@ impl State {
         // as begin_render_pass borrows encoder mutably
         // we could also replace braces by drop(render_pass)
         {
-            let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
                 // tells where we are drawing our colors to
                 // we only supply in the array the render target that we care about
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                color_attachments: &[
+                    // this is what @location(0) in the fragment shader targets
+                    Some(wgpu::RenderPassColorAttachment {
                     // we use the texture view we created earlier to ensure we render to the screen
                     view: &view,
                     // texture that will receive the resolved output
@@ -176,6 +250,11 @@ impl State {
                 })],
                 depth_stencil_attachment: None,
             });
+
+            render_pass.set_pipeline(&self.render_pipeline);
+            // tells WebGPU to draw something with 3 vertices and 1 instance
+            // this is where in the shader @builtin(vertex_index) comes from
+            render_pass.draw(0..3, 0..1); // 3.
         }
 
         // finish the command buffer and send it
