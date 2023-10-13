@@ -16,7 +16,9 @@ pub struct State {
     // it gets dropped after it as the surface contains
     // unsafe references to the window's resources.
     window: Window,
-    render_pipeline: wgpu::RenderPipeline,
+    render_pipeline_triangle: wgpu::RenderPipeline,
+    render_pipeline_triangle_interpol: wgpu::RenderPipeline,
+    use_color: bool
 }
 
 impl State {
@@ -99,9 +101,9 @@ impl State {
 
         // a macro could also be used
         // let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        let shader_triangle = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shader1.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shader_triangle.wgsl").into()),
         });
         
         let render_pipeline_layout =
@@ -111,11 +113,11 @@ impl State {
                 push_constant_ranges: &[],
         });
 
-        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let render_pipeline_triangle = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Render Pipeline"),
             layout: Some(&render_pipeline_layout),
             vertex: wgpu::VertexState {
-                module: &shader,
+                module: &shader_triangle,
                 entry_point: "vs_main",
                 // what type of vertices we want to pass to the vertex shader
                 // for now it's specified in the shader itself
@@ -124,7 +126,69 @@ impl State {
             // fragment is optional so it's in an Option
             // we need it as we want to store color data on the surface
             fragment: Some(wgpu::FragmentState {
-                module: &shader,
+                module: &shader_triangle,
+                entry_point: "fs_main",
+                // what color output it should set up
+                // currently we only need one for the surface
+                targets: &[Some(wgpu::ColorTargetState {
+                    // use the surface's format so copying is easy
+                    format: config.format,
+                    // blending should replace old pixel data with new data
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    // write all colors: rgb and alpha
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState {
+                // every three vertices will correspond to one triangle
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                // front facing triangles are when vertices are given
+                // in counter clock-wise order
+                front_face: wgpu::FrontFace::Ccw,
+                // back facing triangles are not rendered
+                cull_mode: Some(wgpu::Face::Back),
+                // Setting this to anything other than Fill requires Features::NON_FILL_POLYGON_MODE
+                polygon_mode: wgpu::PolygonMode::Fill,
+                // Requires Features::DEPTH_CLIP_CONTROL
+                unclipped_depth: false,
+                // Requires Features::CONSERVATIVE_RASTERIZATION
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                // only one sample
+                count: 1,
+                // which sample will be active (all of them, i.e one)
+                mask: !0,
+                // anti-aliasing related
+                alpha_to_coverage_enabled: false,
+            },
+            // we will not render to array textures
+            multiview: None,
+        });
+
+        // a macro could also be used
+        // let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
+        let shader_triangle_interpol = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Shader Color"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shader_triangle_interpol.wgsl").into()),
+        });
+
+        let render_pipeline_triangle_interpol = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Render Pipeline"),
+            layout: Some(&render_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader_triangle_interpol,
+                entry_point: "vs_main",
+                // what type of vertices we want to pass to the vertex shader
+                // for now it's specified in the shader itself
+                buffers: &[],
+            },
+            // fragment is optional so it's in an Option
+            // we need it as we want to store color data on the surface
+            fragment: Some(wgpu::FragmentState {
+                module: &shader_triangle_interpol,
                 entry_point: "fs_main",
                 // what color output it should set up
                 // currently we only need one for the surface
@@ -174,7 +238,9 @@ impl State {
             config,
             size,
             window,
-            render_pipeline
+            render_pipeline_triangle,
+            render_pipeline_triangle_interpol,
+            use_color: false
         }
     }
 
@@ -191,9 +257,25 @@ impl State {
         }
     }
 
-    #[allow(unused_variables)]
+    //#[allow(unused_variables)]
     pub fn input(&mut self, event: &WindowEvent) -> bool {
-        false
+        match event {
+            WindowEvent::KeyboardInput {
+                input:
+                    KeyboardInput {
+                        state,
+                        virtual_keycode: Some(VirtualKeyCode::Space),
+                        ..
+                    },
+                ..
+            } => {
+                if *state == ElementState::Released { 
+                    self.use_color = !self.use_color
+                };
+                true
+            }
+            _ => false,
+        }
     }
 
     pub fn update(&mut self) {}
@@ -251,7 +333,12 @@ impl State {
                 depth_stencil_attachment: None,
             });
 
-            render_pass.set_pipeline(&self.render_pipeline);
+            if self.use_color == true {
+                render_pass.set_pipeline(&self.render_pipeline_triangle_interpol);
+            } else {
+                render_pass.set_pipeline(&self.render_pipeline_triangle);
+            }
+
             // tells WebGPU to draw something with 3 vertices and 1 instance
             // this is where in the shader @builtin(vertex_index) comes from
             render_pass.draw(0..3, 0..1); // 3.
