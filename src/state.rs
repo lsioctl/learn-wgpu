@@ -5,6 +5,10 @@ use winit::{
     window::Window
 };
 
+// for create_buffer_init, use an extension trait
+use wgpu::util::DeviceExt;
+
+use crate::vertex::*;
 
 pub struct State {
     surface: wgpu::Surface,
@@ -16,9 +20,10 @@ pub struct State {
     // it gets dropped after it as the surface contains
     // unsafe references to the window's resources.
     window: Window,
-    render_pipeline_triangle: wgpu::RenderPipeline,
+    render_pipeline_triangle_interpol_buffer: wgpu::RenderPipeline,
     render_pipeline_triangle_interpol: wgpu::RenderPipeline,
-    use_color: bool
+    use_color: bool,
+    vertex_buffer: wgpu::Buffer
 }
 
 impl State {
@@ -103,7 +108,7 @@ impl State {
         // let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
         let shader_triangle = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shader_triangle.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shader_triangle_interpol_buffer.wgsl").into()),
         });
         
         let render_pipeline_layout =
@@ -113,15 +118,16 @@ impl State {
                 push_constant_ranges: &[],
         });
 
-        let render_pipeline_triangle = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let render_pipeline_triangle_interpol_buffer = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Render Pipeline"),
             layout: Some(&render_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader_triangle,
                 entry_point: "vs_main",
                 // what type of vertices we want to pass to the vertex shader
-                // for now it's specified in the shader itself
-                buffers: &[],
+                buffers: &[
+                    Vertex::desc()
+                ],
             },
             // fragment is optional so it's in an Option
             // we need it as we want to store color data on the surface
@@ -230,6 +236,13 @@ impl State {
             multiview: None,
         });
 
+        let vertex_buffer = device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Vertex Buffer"),
+                contents: bytemuck::cast_slice(VERTICES),
+                usage: wgpu::BufferUsages::VERTEX,
+            }
+        );
 
         Self {
             surface,
@@ -238,9 +251,10 @@ impl State {
             config,
             size,
             window,
-            render_pipeline_triangle,
+            render_pipeline_triangle_interpol_buffer,
             render_pipeline_triangle_interpol,
-            use_color: false
+            use_color: false,
+            vertex_buffer
         }
     }
 
@@ -336,9 +350,11 @@ impl State {
             if self.use_color == true {
                 render_pass.set_pipeline(&self.render_pipeline_triangle_interpol);
             } else {
-                render_pass.set_pipeline(&self.render_pipeline_triangle);
+                render_pass.set_pipeline(&self.render_pipeline_triangle_interpol_buffer);
             }
 
+            // slice(..) means we use the entier buffer
+            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             // tells WebGPU to draw something with 3 vertices and 1 instance
             // this is where in the shader @builtin(vertex_index) comes from
             render_pass.draw(0..3, 0..1); // 3.
