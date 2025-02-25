@@ -11,4 +11,11 @@ env_logger = "0.10"
 log = "0.4"
 wgpu = "0.17"
 pollster = "0.3"
-bytemuck = { version = "1.12", features = [ "derive" ] }
+bytemuck = { version = "1.12", features = ["derive"] }
+
+[dependencies.image]
+version = "0.24"
+default-features = false
+# jpeg use rayon to speed up decoding with threads
+# not supported by WASM, so disable jpeg if targetting web
+features = ["png", "jpeg"]
