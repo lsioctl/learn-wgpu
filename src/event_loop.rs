@@ -6,7 +6,7 @@ use winit::{
 
 use crate::state::State;
 
-pub async fn run() { 
+pub async fn run() {
     env_logger::init();
 
     let event_loop = EventLoop::new();
@@ -23,7 +23,8 @@ pub async fn run() {
             } if window_id == state.window().id() => {
                 if !state.input(event) {
                     match event {
-                        WindowEvent::CloseRequested | WindowEvent::KeyboardInput {
+                        WindowEvent::CloseRequested
+                        | WindowEvent::KeyboardInput {
                             input:
                                 KeyboardInput {
                                     state: ElementState::Pressed,
@@ -66,4 +67,3 @@ pub async fn run() {
         }
     });
 }
-
