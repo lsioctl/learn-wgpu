@@ -21,6 +21,8 @@ pub struct State {
     render_pipeline_triangle_interpol: wgpu::RenderPipeline,
     use_color: bool,
     vertex_buffer: wgpu::Buffer,
+    index_buffer: wgpu::Buffer,
+    num_indices: u32,
 }
 
 impl State {
@@ -241,6 +243,14 @@ impl State {
             usage: wgpu::BufferUsages::VERTEX,
         });
 
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Index Buffer"),
+            contents: bytemuck::cast_slice(INDICES),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+
+        let num_indices = INDICES.len() as u32;
+
         Self {
             surface,
             device,
@@ -252,6 +262,8 @@ impl State {
             render_pipeline_triangle_interpol,
             use_color: false,
             vertex_buffer,
+            index_buffer,
+            num_indices,
         }
     }
 
@@ -355,7 +367,11 @@ impl State {
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             // tells WebGPU to draw something with 3 vertices and 1 instance
             // this is where in the shader @builtin(vertex_index) comes from
-            render_pass.draw(0..3, 0..1); // 3.
+            // render_pass.draw(0..3, 0..1);
+            // You can only have one index buffer set at a time
+            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            // The draw method ignores the index buffer
+            render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
         }
 
         // finish the command buffer and send it
