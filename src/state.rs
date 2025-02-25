@@ -104,7 +104,7 @@ impl State {
         let shader_triangle = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
             source: wgpu::ShaderSource::Wgsl(
-                include_str!("shader_triangle_interpol_buffer.wgsl").into(),
+                include_str!("shaders/shader_triangle_interpol_buffer.wgsl").into(),
             ),
         });
 
@@ -174,7 +174,9 @@ impl State {
         // let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
         let shader_triangle_interpol = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader Color"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shader_triangle_interpol.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(
+                include_str!("shaders/shader_triangle_interpol.wgsl").into(),
+            ),
         });
 
         let render_pipeline_triangle_interpol =
