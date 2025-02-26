@@ -1,14 +1,18 @@
 use std::iter;
 
-use winit::{event::*, window::Window};
+use winit::{
+    event::*,
+    keyboard::{KeyCode, PhysicalKey},
+    window::Window,
+};
 
 // for create_buffer_init, use an extension trait
 use wgpu::util::DeviceExt;
 
 use crate::vertex::*;
 
-pub struct State {
-    surface: wgpu::Surface,
+pub struct State<'a> {
+    surface: wgpu::Surface<'a>,
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
@@ -16,7 +20,7 @@ pub struct State {
     // The window must be declared after the surface so
     // it gets dropped after it as the surface contains
     // unsafe references to the window's resources.
-    window: Window,
+    window: &'a Window,
     render_pipeline_triangle_interpol_buffer: wgpu::RenderPipeline,
     render_pipeline_triangle_interpol: wgpu::RenderPipeline,
     use_color: bool,
@@ -25,30 +29,26 @@ pub struct State {
     num_indices: u32,
 }
 
-impl State {
-    pub async fn new(window: Window) -> Self {
+impl<'a> State<'a> {
+    pub async fn new(window: &'a Window) -> Self {
         let size = window.inner_size();
 
         // The instance is the first thing we instantiate in WGPU
         // it'll handle the surface and the adapter
 
         // The instance is a handle to our GPU
-        // BackendBit::PRIMARY => Vulkan + Metal + DX12 + Browser WebGPU
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
-            dx12_shader_compiler: Default::default(),
+        // Backends::all => Vulkan + Metal + DX12 + Browser WebGPU
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+            #[cfg(not(target_arch = "wasm32"))]
+            backends: wgpu::Backends::PRIMARY,
+            ..Default::default()
         });
 
-        // # Safety
-        //
-        // The surface needs to live as long as the window that created it.
-        // State owns the window so this should be safe.
-        let surface = unsafe { instance.create_surface(&window) }.unwrap();
+        let surface = instance.create_surface(window).unwrap();
 
         // adapter is a handle to the actual GPU
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
-                // two variants: LowPower and HighPerformance
                 power_preference: wgpu::PowerPreference::default(),
                 compatible_surface: Some(&surface),
                 force_fallback_adapter: false,
@@ -59,46 +59,46 @@ impl State {
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
-                    label: None,
-                    features: wgpu::Features::empty(),
+                    required_features: wgpu::Features::empty(),
                     // WebGL doesn't support all of wgpu's features, so if
-                    // we're building for the web we'll have to disable some.
-                    limits: if cfg!(target_arch = "wasm32") {
+                    // we're building for the web, we'll have to disable some.
+                    required_limits: if cfg!(target_arch = "wasm32") {
                         wgpu::Limits::downlevel_webgl2_defaults()
                     } else {
                         wgpu::Limits::default()
                     },
+                    label: None,
+                    memory_hints: Default::default(),
                 },
-                // Some(&std::path::Path::new("trace")), // Trace path
-                None,
+                None, // Trace path
             )
             .await
             .unwrap();
 
         let surface_caps = surface.get_capabilities(&adapter);
         //println!("{:?}", surface_caps);
-        // Shader code in this tutorial assumes an Srgb surface texture. Using a different
-        // one will result all the colors comming out darker. If you want to support non
-        // Srgb surfaces, you'll need to account for that when drawing to the frame.
+
+        // Shader code in this tutorial assumes an sRGB surface texture. Using a different
+        // one will result in all the colors coming out darker. If you want to support non
+        // sRGB surfaces, you'll need to account for that when drawing to the frame.
         let surface_format = surface_caps
             .formats
             .iter()
-            .copied()
             .find(|f| f.is_srgb())
+            .copied()
             .unwrap_or(surface_caps.formats[0]);
+
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
             width: size.width,
             height: size.height,
-            // How to sync the surface with the display
-            // Fifo will cap the rate at the display's framerate
-            // This mode is guaranteed to be supported in all platforms
-            //present_mode: surface_caps.present_modes[0],
-            present_mode: wgpu::PresentMode::Fifo,
+            present_mode: surface_caps.present_modes[0],
             alpha_mode: surface_caps.alpha_modes[0],
             view_formats: vec![],
+            desired_maximum_frame_latency: 2,
         };
+
         surface.configure(&device, &config);
 
         let diffuse_bytes = include_bytes!("textures/happy-tree.png");
@@ -178,15 +178,16 @@ impl State {
                 layout: Some(&render_pipeline_layout),
                 vertex: wgpu::VertexState {
                     module: &shader_triangle,
-                    entry_point: "vs_main",
+                    entry_point: Some("vs_main"),
                     // what type of vertices we want to pass to the vertex shader
                     buffers: &[Vertex::desc()],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
                 },
                 // fragment is optional so it's in an Option
                 // we need it as we want to store color data on the surface
                 fragment: Some(wgpu::FragmentState {
                     module: &shader_triangle,
-                    entry_point: "fs_main",
+                    entry_point: Some("fs_main"),
                     // what color output it should set up
                     // currently we only need one for the surface
                     targets: &[Some(wgpu::ColorTargetState {
@@ -197,6 +198,7 @@ impl State {
                         // write all colors: rgb and alpha
                         write_mask: wgpu::ColorWrites::ALL,
                     })],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
                 }),
                 primitive: wgpu::PrimitiveState {
                     // every three vertices will correspond to one triangle
@@ -225,6 +227,8 @@ impl State {
                 },
                 // we will not render to array textures
                 multiview: None,
+                // cache shader compilation data. TODO: why "only really useful for Android build target" ?
+                cache: None,
             });
 
         // a macro could also be used
@@ -242,16 +246,17 @@ impl State {
                 layout: Some(&render_pipeline_layout),
                 vertex: wgpu::VertexState {
                     module: &shader_triangle_interpol,
-                    entry_point: "vs_main",
+                    entry_point: Some("vs_main"),
                     // what type of vertices we want to pass to the vertex shader
                     // for now it's specified in the shader itself
                     buffers: &[],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
                 },
                 // fragment is optional so it's in an Option
                 // we need it as we want to store color data on the surface
                 fragment: Some(wgpu::FragmentState {
                     module: &shader_triangle_interpol,
-                    entry_point: "fs_main",
+                    entry_point: Some("fs_main"),
                     // what color output it should set up
                     // currently we only need one for the surface
                     targets: &[Some(wgpu::ColorTargetState {
@@ -262,6 +267,7 @@ impl State {
                         // write all colors: rgb and alpha
                         write_mask: wgpu::ColorWrites::ALL,
                     })],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
                 }),
                 primitive: wgpu::PrimitiveState {
                     // every three vertices will correspond to one triangle
@@ -290,6 +296,8 @@ impl State {
                 },
                 // we will not render to array textures
                 multiview: None,
+                // cache shader compilation data. TODO: why "only really useful for Android build target" ?
+                cache: None,
             });
 
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -339,10 +347,10 @@ impl State {
     pub fn input(&mut self, event: &WindowEvent) -> bool {
         match event {
             WindowEvent::KeyboardInput {
-                input:
-                    KeyboardInput {
+                event:
+                    KeyEvent {
                         state,
-                        virtual_keycode: Some(VirtualKeyCode::Space),
+                        physical_key: PhysicalKey::Code(KeyCode::Space),
                         ..
                     },
                 ..
@@ -405,11 +413,14 @@ impl State {
                             }),
                             // we want to store our render results to the texture behind the texture view
                             // (in our case the SurfaceTexture)
-                            store: true,
+                            store: wgpu::StoreOp::Store,
                         },
                     }),
                 ],
                 depth_stencil_attachment: None,
+                // TODO: not in documentation but in source code
+                occlusion_query_set: None,
+                timestamp_writes: None,
             });
 
             if self.use_color == true {
