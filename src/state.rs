@@ -9,7 +9,7 @@ use winit::{
 // for create_buffer_init, use an extension trait
 use wgpu::util::DeviceExt;
 
-use crate::{mytexture::*, vertex::*};
+use crate::{camera::*, mytexture::*, vertex::*};
 
 pub struct State<'a> {
     surface: wgpu::Surface<'a>,
@@ -28,6 +28,9 @@ pub struct State<'a> {
     index_buffer: wgpu::Buffer,
     num_indices: u32,
     diffuse_bind_group: wgpu::BindGroup,
+    camera: Camera,
+    camera_buffer: wgpu::Buffer,
+    camera_bind_group: wgpu::BindGroup,
 }
 
 impl<'a> State<'a> {
@@ -160,10 +163,42 @@ impl<'a> State<'a> {
             ),
         });
 
+        let camera = Camera::new(&config);
+
+        let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Camera Buffer"),
+            contents: bytemuck::cast_slice(&[camera.get_uniform()]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let camera_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+                label: Some("camera_bind_group_layout"),
+            });
+
+        let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &camera_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: camera_buffer.as_entire_binding(),
+            }],
+            label: Some("camera_bind_group"),
+        });
+
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[&bind_group_layout],
+                bind_group_layouts: &[&bind_group_layout, &camera_bind_group_layout],
                 push_constant_ranges: &[],
             });
 
@@ -323,6 +358,9 @@ impl<'a> State<'a> {
             index_buffer,
             num_indices,
             diffuse_bind_group,
+            camera,
+            camera_buffer,
+            camera_bind_group,
         }
     }
 
@@ -426,6 +464,7 @@ impl<'a> State<'a> {
             }
 
             render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
             // slice(..) means we use the entier buffer
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             // tells WebGPU to draw something with 3 vertices and 1 instance
