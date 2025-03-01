@@ -1,15 +1,11 @@
 use std::iter;
 
-use winit::{
-    event::*,
-    keyboard::{KeyCode, PhysicalKey},
-    window::Window,
-};
+use winit::{event::*, window::Window};
 
 // for create_buffer_init, use an extension trait
 use wgpu::util::DeviceExt;
 
-use crate::{camera::*, mytexture::*, vertex::*};
+use crate::{camera::*, camera_controller::*, mytexture::*, vertex::*};
 
 pub struct State<'a> {
     surface: wgpu::Surface<'a>,
@@ -31,6 +27,7 @@ pub struct State<'a> {
     camera: Camera,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
+    camera_controller: CameraController,
 }
 
 impl<'a> State<'a> {
@@ -344,6 +341,8 @@ impl<'a> State<'a> {
 
         let num_indices = INDICES.len() as u32;
 
+        let camera_controller = CameraController::new(0.2);
+
         Self {
             surface,
             device,
@@ -361,6 +360,7 @@ impl<'a> State<'a> {
             camera,
             camera_buffer,
             camera_bind_group,
+            camera_controller,
         }
     }
 
@@ -379,26 +379,38 @@ impl<'a> State<'a> {
 
     //#[allow(unused_variables)]
     pub fn input(&mut self, event: &WindowEvent) -> bool {
-        match event {
-            WindowEvent::KeyboardInput {
-                event:
-                    KeyEvent {
-                        state,
-                        physical_key: PhysicalKey::Code(KeyCode::Space),
-                        ..
-                    },
-                ..
-            } => {
-                if *state == ElementState::Released {
-                    self.use_color = !self.use_color
-                };
-                true
-            }
-            _ => false,
-        }
+        self.camera_controller.process_events(event)
+        // match event {
+        //     WindowEvent::KeyboardInput {
+        //         event:
+        //             KeyEvent {
+        //                 state,
+        //                 physical_key: PhysicalKey::Code(KeyCode::Space),
+        //                 ..
+        //             },
+        //         ..
+        //     } => {
+        //         if *state == ElementState::Released {
+        //             self.use_color = !self.use_color
+        //         };
+        //         true
+        //     }
+        //     _ => false,
+        // }
     }
 
-    pub fn update(&mut self) {}
+    pub fn update(&mut self) {
+        self.camera_controller.update_camera(&mut self.camera);
+        // we have many options here, like
+        // * create a separte buffer and copy its content to the camera_buffer (staging buffer, usual way ?)
+        // * call mapping method map_read_async map_write_async
+        // * write_buffer as below (maybe also write_buffer_with ?)
+        self.queue.write_buffer(
+            &self.camera_buffer,
+            0,
+            bytemuck::cast_slice(&[self.camera.get_uniform()]),
+        );
+    }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         // wait for the surface to provide a surface texture to write to

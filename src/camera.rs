@@ -10,20 +10,14 @@ pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
 );
 
 pub struct Camera {
-    eye: cgmath::Point3<f32>,
-    target: cgmath::Point3<f32>,
-    up: cgmath::Vector3<f32>,
+    pub eye: cgmath::Point3<f32>,
+    pub target: cgmath::Point3<f32>,
+    pub up: cgmath::Vector3<f32>,
     aspect: f32,
     fovy: f32,
     znear: f32,
     zfar: f32,
 }
-
-// We need this for Rust to store our data correctly for the shaders
-#[repr(C)]
-// This is so we can store this in a buffer
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-struct CameraUniform {}
 
 impl Camera {
     pub fn new(config: &wgpu::SurfaceConfiguration) -> Self {
@@ -49,6 +43,8 @@ impl Camera {
     }
     // We can't use cgmath with bytemuck directly, so we'll have
     // to convert the Matrix4 into a 4x4 f32 array
+    // TODO: in the original code, CameraUniform was using a repr(C)
+    // I do not see the point here as we use plain array ?
     pub fn get_uniform(&self) -> [[f32; 4]; 4] {
         self.build_view_projection_matrix().into()
     }
