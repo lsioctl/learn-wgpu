@@ -1,5 +1,7 @@
 use std::iter;
 
+use winit::keyboard::KeyCode;
+use winit::keyboard::PhysicalKey;
 use winit::{event::*, window::Window};
 
 // for create_buffer_init, use an extension trait
@@ -379,24 +381,26 @@ impl<'a> State<'a> {
 
     //#[allow(unused_variables)]
     pub fn input(&mut self, event: &WindowEvent) -> bool {
-        self.camera_controller.process_events(event)
-        // match event {
-        //     WindowEvent::KeyboardInput {
-        //         event:
-        //             KeyEvent {
-        //                 state,
-        //                 physical_key: PhysicalKey::Code(KeyCode::Space),
-        //                 ..
-        //             },
-        //         ..
-        //     } => {
-        //         if *state == ElementState::Released {
-        //             self.use_color = !self.use_color
-        //         };
-        //         true
-        //     }
-        //     _ => false,
-        // }
+        let camera_controlled = self.camera_controller.process_events(event);
+        let switch_controlled = match event {
+            WindowEvent::KeyboardInput {
+                event:
+                    KeyEvent {
+                        state,
+                        physical_key: PhysicalKey::Code(KeyCode::Space),
+                        ..
+                    },
+                ..
+            } => {
+                if *state == ElementState::Released {
+                    self.use_color = !self.use_color
+                };
+                true
+            }
+            _ => false,
+        };
+
+        camera_controlled && switch_controlled
     }
 
     pub fn update(&mut self) {
