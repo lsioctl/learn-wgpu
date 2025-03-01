@@ -1,8 +1,5 @@
 use winit::{
-    event::*,
-    event_loop::{ControlFlow, EventLoop},
-    keyboard::KeyCode,
-    keyboard::PhysicalKey,
+    event::*, event_loop::EventLoop, keyboard::KeyCode, keyboard::PhysicalKey,
     window::WindowBuilder,
 };
 
