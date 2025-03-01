@@ -102,7 +102,54 @@ impl<'a> State<'a> {
 
         surface.configure(&device, &config);
 
-        let texture = MyTexture::new(&device, &queue);
+        let texture = MyTexture::new(&device, &queue, include_bytes!("textures/happy-tree.png"));
+
+        // a bind group describes a set of ressources and how they are accessed by a shader
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    // only visible to the fs
+                    // possible values bitwise combinations
+                    // of NONE, VERTEX, FRAGMENT, COMPUTE
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        multisampled: false,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    // only visible to the fs
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    // This should match the filterable field of the
+                    // corresponding Texture entry above.
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+            label: Some("texture_bind_group_layout"),
+        });
+
+        // This may seem not very DRY
+        // BindGroup is a more specific declaration of the bind group layout
+        // this pattern allows us to swap BindGroups on the fly as long as they have the same layout
+        let diffuse_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&texture.diffuse_texture_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&texture.diffuse_sampler),
+                },
+            ],
+            label: Some("diffuse_bind_group"),
+        });
 
         // a macro could also be used
         // let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
@@ -116,7 +163,7 @@ impl<'a> State<'a> {
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[&texture.bind_group_layout],
+                bind_group_layouts: &[&bind_group_layout],
                 push_constant_ranges: &[],
             });
 
@@ -275,7 +322,7 @@ impl<'a> State<'a> {
             vertex_buffer,
             index_buffer,
             num_indices,
-            diffuse_bind_group: texture.diffuse_bind_group,
+            diffuse_bind_group,
         }
     }
 
