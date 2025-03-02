@@ -16,6 +16,14 @@ struct VertexInput {
     @location(1) tex_coords: vec2<f32>
 };
 
+// parts of the dissambled matrix
+struct InstanceInput {
+    @location(5) model_matrix_0: vec4<f32>,
+    @location(6) model_matrix_1: vec4<f32>,
+    @location(7) model_matrix_2: vec4<f32>,
+    @location(8) model_matrix_3: vec4<f32>,
+};
+
 struct VertexOutput {
     // the value we want as clip coordinates
     // equivalent to gl_Position in GLSL
@@ -28,13 +36,25 @@ struct VertexOutput {
 
 @vertex
 fn vs_main(
-    model: VertexInput
+    model: VertexInput, instance: InstanceInput
 ) -> VertexOutput {
+     // reassemble the matrix before using it
+    let model_matrix = mat4x4<f32>(
+        instance.model_matrix_0,
+        instance.model_matrix_1,
+        instance.model_matrix_2,
+        instance.model_matrix_3,
+    );
+
     // var declared variables are mutable but must be explicetly typed
     var out: VertexOutput;
     // let declarded variables are immutable and type could be inferred
    
-    out.clip_position = camera.view_proj * vec4<f32>(model.position, 1.0);
+    // We'll apply the model_matrix before we apply camera_uniform.view_proj. 
+    // We do this because the camera_uniform.view_proj changes the coordinate system
+    // from world space to camera space. 
+    // Our model_matrix is a world space transformation, so we don't want to be in camera space when using it.
+    out.clip_position = camera.view_proj * model_matrix * vec4<f32>(model.position, 1.0);
     out.tex_coords = model.tex_coords;
 
     return out;

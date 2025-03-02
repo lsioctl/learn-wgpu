@@ -4,10 +4,19 @@ use winit::keyboard::KeyCode;
 use winit::keyboard::PhysicalKey;
 use winit::{event::*, window::Window};
 
+use cgmath::prelude::*;
+
 // for create_buffer_init, use an extension trait
 use wgpu::util::DeviceExt;
 
-use crate::{camera::*, camera_controller::*, mytexture::*, vertex::*};
+use crate::{camera::*, camera_controller::*, instance::*, mytexture::*, vertex::*};
+
+const NUM_INSTANCES_PER_ROW: u32 = 10;
+const INSTANCE_DISPLACEMENT: cgmath::Vector3<f32> = cgmath::Vector3::new(
+    NUM_INSTANCES_PER_ROW as f32 * 0.5,
+    0.0,
+    NUM_INSTANCES_PER_ROW as f32 * 0.5,
+);
 
 pub struct State<'a> {
     surface: wgpu::Surface<'a>,
@@ -30,6 +39,8 @@ pub struct State<'a> {
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
     camera_controller: CameraController,
+    instances: Vec<Instance>,
+    instance_buffer: wgpu::Buffer,
 }
 
 impl<'a> State<'a> {
@@ -209,7 +220,7 @@ impl<'a> State<'a> {
                     module: &shader_triangle,
                     entry_point: Some("vs_main"),
                     // what type of vertices we want to pass to the vertex shader
-                    buffers: &[Vertex::desc()],
+                    buffers: &[Vertex::desc(), InstanceRaw::desc()],
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                 },
                 // fragment is optional so it's in an Option
@@ -345,6 +356,38 @@ impl<'a> State<'a> {
 
         let camera_controller = CameraController::new(0.2);
 
+        let instances = (0..NUM_INSTANCES_PER_ROW)
+            .flat_map(|z| {
+                (0..NUM_INSTANCES_PER_ROW).map(move |x| {
+                    let position = cgmath::Vector3 {
+                        x: x as f32,
+                        y: 0.0,
+                        z: z as f32,
+                    } - INSTANCE_DISPLACEMENT;
+
+                    let rotation = if position.is_zero() {
+                        // this is needed so an object at (0, 0, 0) won't get scaled to zero
+                        // as Quaternions can affect scale if they're not created correctly
+                        cgmath::Quaternion::from_axis_angle(
+                            cgmath::Vector3::unit_z(),
+                            cgmath::Deg(0.0),
+                        )
+                    } else {
+                        cgmath::Quaternion::from_axis_angle(position.normalize(), cgmath::Deg(45.0))
+                    };
+
+                    Instance { position, rotation }
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
+        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Instance Buffer"),
+            contents: bytemuck::cast_slice(&instance_data),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
         Self {
             surface,
             device,
@@ -363,6 +406,8 @@ impl<'a> State<'a> {
             camera_buffer,
             camera_bind_group,
             camera_controller,
+            instances,
+            instance_buffer,
         }
     }
 
@@ -400,7 +445,7 @@ impl<'a> State<'a> {
             _ => false,
         };
 
-        camera_controlled && switch_controlled
+        camera_controlled || switch_controlled
     }
 
     pub fn update(&mut self) {
@@ -483,13 +528,14 @@ impl<'a> State<'a> {
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
             // slice(..) means we use the entier buffer
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
             // tells WebGPU to draw something with 3 vertices and 1 instance
             // this is where in the shader @builtin(vertex_index) comes from
             // render_pass.draw(0..3, 0..1);
             // You can only have one index buffer set at a time
             render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
             // The draw method ignores the index buffer
-            render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
+            render_pass.draw_indexed(0..self.num_indices, 0, 0..self.instances.len() as _);
         }
 
         // finish the command buffer and send it
